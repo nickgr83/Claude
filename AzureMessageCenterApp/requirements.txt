@@ -1,0 +1,5 @@
+msal>=1.28.0
+requests>=2.31.0
+pystray>=0.19.5
+Pillow>=10.0.0
+winotify>=1.1.0

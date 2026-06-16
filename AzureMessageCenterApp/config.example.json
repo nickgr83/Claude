@@ -1,0 +1,8 @@
+{
+    "tenant_id": "YOUR_TENANT_ID",
+    "client_id": "YOUR_CLIENT_ID",
+    "poll_interval_minutes": 15,
+    "show_popup_on_startup": true,
+    "max_notifications_per_poll": 5,
+    "login_hint": "your@email.com"
+}
