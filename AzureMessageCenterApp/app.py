@@ -32,23 +32,22 @@ MESSAGES_CACHE_FILE = BASE_DIR / "messages_cache.json"
 TOKEN_CACHE_FILE = BASE_DIR / "token_cache.bin"
 LOG_FILE = BASE_DIR / "app.log"
 
-# Each entry: (source_label, [feed_urls_in_priority_order], filter_tag_or_None)
-# filter_tag=None means accept all entries (feed is already pre-filtered).
+# Each entry: (source_label, [(feed_url, filter_tag_or_None), ...])
+# filter_tag=None  → accept all entries from that URL (pre-filtered feed)
+# filter_tag="foo" → only accept entries whose tags contain "foo"
 BLOG_SOURCES = [
     (
         "Azure Blog",
         [
-            "https://azure.microsoft.com/en-us/blog/content-type/announcements/feed/",
-            "https://azure.microsoft.com/en-us/blog/feed/",
+            ("https://azure.microsoft.com/en-us/blog/content-type/announcements/feed/", None),
+            ("https://azure.microsoft.com/en-us/blog/feed/", "announcements"),
         ],
-        "announcements",   # filter tag when using the main feed
     ),
     (
         "Windows Blog",
         [
-            "https://blogs.windows.com/feed/",
+            ("https://blogs.windows.com/feed/", None),
         ],
-        None,              # accept all posts from this feed
     ),
 ]
 
@@ -195,12 +194,12 @@ def fetch_messages(token: str) -> list:
     return msgs
 
 
-def _fetch_one_blog(source_label: str, feed_urls: list, filter_tag: str | None) -> list:
-    """Try each URL in order, return parsed entries for the first that succeeds."""
+def _fetch_one_blog(source_label: str, feed_url_pairs: list) -> list:
+    """Try each (url, filter_tag) pair in order; return entries from the first that succeeds."""
     headers = {"User-Agent": "AzureMessageCenterMonitor/1.0"}
     last_exc = None
 
-    for feed_url in feed_urls:
+    for feed_url, filter_tag in feed_url_pairs:
         try:
             feed = feedparser.parse(feed_url, request_headers=headers)
         except Exception as exc:
@@ -212,6 +211,8 @@ def _fetch_one_blog(source_label: str, feed_urls: list, filter_tag: str | None) 
             last_exc = feed.bozo_exception
             log.warning("%s feed %s bozo (no entries): %s", source_label, feed_url, last_exc)
             continue
+
+        log.debug("%s raw entries from %s: %d", source_label, feed_url, len(feed.entries))
 
         results = []
         for entry in feed.entries:
@@ -254,9 +255,9 @@ def _fetch_one_blog(source_label: str, feed_urls: list, filter_tag: str | None) 
 def fetch_blog_announcements() -> list:
     """Fetch all configured blog sources and return combined results."""
     results = []
-    for source_label, feed_urls, filter_tag in BLOG_SOURCES:
+    for source_label, feed_url_pairs in BLOG_SOURCES:
         try:
-            results.extend(_fetch_one_blog(source_label, feed_urls, filter_tag))
+            results.extend(_fetch_one_blog(source_label, feed_url_pairs))
         except Exception as exc:
             log.warning("Blog source %s error: %s", source_label, exc)
     return results
@@ -356,12 +357,12 @@ def poll_once(cfg: dict, seen: set, seen_blog: set, first_run: bool, cache_ref: 
     blog_messages = []
     try:
         blog_messages = fetch_blog_announcements()
-        for label, _, _ in BLOG_SOURCES:
+        for label, _ in BLOG_SOURCES:
             count = sum(1 for m in blog_messages if m.get("source") == label)
             source_counts[label] = count
     except Exception as exc:
         log.warning("Blog fetch failed (non-fatal): %s", exc)
-        for label, _, _ in BLOG_SOURCES:
+        for label, _ in BLOG_SOURCES:
             source_counts[label] = "ERR"
 
     # Update combined cache sorted by date descending
@@ -484,9 +485,9 @@ class MessageViewer:
         style.configure("Filter.TEntry", fieldbackground="#2a2a3e",
                         foreground="#e0e0f0", insertcolor="#e0e0f0")
 
-        # ── Filter bar ────────────────────────────────────────────────────────
+        # ── Filter bar — row 1: text filters ─────────────────────────────────
         filter_bar = tk.Frame(root, bg="#1e1e2e")
-        filter_bar.pack(fill=tk.X, padx=10, pady=(8, 2))
+        filter_bar.pack(fill=tk.X, padx=10, pady=(8, 0))
 
         lbl_kw = {"bg": "#1e1e2e", "fg": "#a0a0c0", "font": ("Segoe UI", 9)}
         ent_kw = {"bg": "#2a2a3e", "fg": "#e0e0f0", "insertbackground": "#e0e0f0",
@@ -513,6 +514,30 @@ class MessageViewer:
 
         for var in (self._f_title, self._f_services, self._f_tags):
             var.trace_add("write", lambda *_: self._apply_filters())
+
+        # ── Filter bar — row 2: source checkboxes ────────────────────────────
+        source_bar = tk.Frame(root, bg="#1e1e2e")
+        source_bar.pack(fill=tk.X, padx=10, pady=(4, 2))
+
+        tk.Label(source_bar, text="Sources:", **lbl_kw).pack(side=tk.LEFT, padx=(0, 8))
+
+        # Collect unique sources from messages, preserving insertion order
+        seen_sources = {}
+        for m in self.messages:
+            s = m.get("source", "Message Center")
+            seen_sources[s] = True
+        self._source_vars = {}
+        for source in seen_sources:
+            var = tk.BooleanVar(value=True)
+            self._source_vars[source] = var
+            cb = tk.Checkbutton(
+                source_bar, text=source, variable=var,
+                bg="#1e1e2e", fg="#e0e0f0", selectcolor="#2a2a3e",
+                activebackground="#1e1e2e", activeforeground="#60cdff",
+                font=("Segoe UI", 9), relief="flat",
+                command=self._apply_filters,
+            )
+            cb.pack(side=tk.LEFT, padx=(0, 12))
 
         # ── Vertical PanedWindow ──────────────────────────────────────────────
         paned = ttk.PanedWindow(root, orient=tk.VERTICAL)
@@ -586,12 +611,14 @@ class MessageViewer:
         ft = self._f_title.get().lower()
         fs = self._f_services.get().lower()
         fg = self._f_tags.get().lower()
+        active_sources = {s for s, v in self._source_vars.items() if v.get()}
 
         self._filtered = [
             m for m in self.messages
             if ft in m.get("title", "").lower()
             and fs in ", ".join(m.get("services", [])).lower()
             and fg in ", ".join(m.get("tags", [])).lower()
+            and m.get("source", "Message Center") in active_sources
         ]
         self._refresh_tree()
 
@@ -599,6 +626,8 @@ class MessageViewer:
         self._f_title.set("")
         self._f_services.set("")
         self._f_tags.set("")
+        for var in self._source_vars.values():
+            var.set(True)
 
     def _sort_by(self, col: str):
         if col in ("sev",):
