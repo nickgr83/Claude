@@ -316,14 +316,23 @@ def severity_emoji(msg: dict) -> str:
     return "🔵"
 
 
-def fmt_date(iso: str) -> str:
-    if not iso:
+def fmt_date(value: str) -> str:
+    """Normalise any date string (ISO 8601 or RFC 2822) to YYYY-MM-DD."""
+    if not value:
         return ""
+    from email.utils import parsedate
+    import calendar
+    # ISO 8601: starts with digits e.g. "2026-06-16T..."
+    if value[:4].isdigit():
+        return value[:10]
+    # RFC 2822: e.g. "Mon, 16 Jun 2026 11:31:47 +0000"
     try:
-        dt = iso[:10]  # YYYY-MM-DD
-        return dt
+        t = parsedate(value)
+        if t:
+            return f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d}"
     except Exception:
-        return iso
+        pass
+    return value
 
 
 # ── Polling ───────────────────────────────────────────────────────────────────
@@ -357,7 +366,7 @@ def poll_once(cfg: dict, seen: set, seen_blog: set, first_run: bool, cache_ref: 
 
     # Update combined cache sorted by date descending
     all_messages = mc_messages + blog_messages
-    all_messages.sort(key=lambda m: m.get("lastModifiedDateTime", ""), reverse=True)
+    all_messages.sort(key=lambda m: _sortable_date(m.get("lastModifiedDateTime", "")), reverse=True)
     cache_ref.clear()
     cache_ref.extend(all_messages)
     save_messages_cache(all_messages)
@@ -416,10 +425,26 @@ def poll_once(cfg: dict, seen: set, seen_blog: set, first_run: bool, cache_ref: 
 
 # ── Message Viewer Window ─────────────────────────────────────────────────────
 
+def _sortable_date(value: str) -> str:
+    """Return an ISO-8601 string suitable for lexicographic date sorting."""
+    if not value:
+        return ""
+    if value[:4].isdigit():
+        return value  # already ISO — sorts correctly as-is
+    from email.utils import parsedate
+    try:
+        t = parsedate(value)
+        if t:
+            return f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d}T{t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
+    except Exception:
+        pass
+    return value
+
+
 class MessageViewer:
     # column index → message field key for sorting
     _SORT_KEY = {
-        "date":     lambda m: m.get("lastModifiedDateTime", ""),
+        "date":     lambda m: _sortable_date(m.get("lastModifiedDateTime", "")),
         "title":    lambda m: m.get("title", "").lower(),
         "services": lambda m: ", ".join(m.get("services", [])).lower(),
         "tags":     lambda m: ", ".join(m.get("tags", [])).lower(),
