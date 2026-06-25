@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cegeka DIO — Organigram</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #f0f4f8;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  #header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 52px;
+    background: #1f3864;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 16px;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+
+  #header h1 {
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+
+  #header .subtitle {
+    color: #a8c0e0;
+    font-size: 12px;
+    margin-left: 4px;
+  }
+
+  #controls {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  button {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.3);
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover { background: rgba(255,255,255,0.25); }
+
+  #chart-container {
+    position: fixed;
+    top: 52px; left: 0; right: 0; bottom: 0;
+  }
+
+  svg {
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+  }
+  svg:active { cursor: grabbing; }
+
+  .link {
+    fill: none;
+    stroke: #b0c4de;
+    stroke-width: 1.5px;
+  }
+
+  .node { cursor: pointer; }
+
+  .node rect {
+    rx: 6px;
+    ry: 6px;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.12));
+    transition: filter 0.15s;
+  }
+  .node:hover rect {
+    filter: drop-shadow(0 3px 8px rgba(0,0,0,0.25));
+  }
+
+  .node text {
+    pointer-events: none;
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+
+  .node .name {
+    font-size: 11.5px;
+    font-weight: 600;
+    fill: #fff;
+  }
+  .node .email {
+    font-size: 9.5px;
+    fill: rgba(255,255,255,0.75);
+  }
+  .node .count-badge {
+    font-size: 9px;
+    fill: rgba(255,255,255,0.9);
+    font-weight: 500;
+  }
+
+  /* leaf nodes */
+  .node.leaf rect { fill: #fff; stroke: #c8d8ec; stroke-width: 1px; }
+  .node.leaf .name { fill: #1f3864; }
+  .node.leaf .email { fill: #666; }
+
+  /* expand indicator */
+  .node .expand-dot {
+    fill: rgba(255,255,255,0.6);
+    stroke: rgba(255,255,255,0.9);
+    stroke-width: 1px;
+  }
+  .node.leaf .expand-dot { display: none; }
+
+  #tooltip {
+    position: fixed;
+    background: #1f3864;
+    color: #fff;
+    padding: 6px 10px;
+    border-radius: 5px;
+    font-size: 11px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 200;
+    max-width: 220px;
+  }
+
+  #legend {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    background: #fff;
+    border: 1px solid #dde;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 11px;
+    color: #444;
+    z-index: 100;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  }
+  #legend .leg-row { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+  #legend .leg-row:last-child { margin-bottom: 0; }
+  #legend .swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+  #legend .leg-hint { color: #888; margin-top: 6px; border-top: 1px solid #eee; padding-top: 6px; line-height: 1.4; }
+
+  /* ── Search ── */
+  #search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  #search-input {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: #fff;
+    padding: 5px 26px 5px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    width: 200px;
+    outline: none;
+    transition: background 0.15s, border-color 0.15s;
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+  #search-input::placeholder { color: rgba(255,255,255,0.45); }
+  #search-input:focus {
+    background: rgba(255,255,255,0.2);
+    border-color: rgba(255,255,255,0.65);
+  }
+  #search-clear {
+    position: absolute;
+    right: 7px;
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.55);
+    font-size: 15px;
+    cursor: pointer;
+    padding: 0;
+    display: none;
+    line-height: 1;
+  }
+  #search-clear:hover { color: #fff; background: none; }
+  #search-dropdown {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    min-width: 240px;
+    background: #fff;
+    border: 1px solid #c8d8ec;
+    border-radius: 5px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    z-index: 300;
+    max-height: 280px;
+    overflow-y: auto;
+    display: none;
+  }
+  .search-item {
+    padding: 7px 11px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f4f8;
+    font-size: 12px;
+  }
+  .search-item:last-child { border-bottom: none; }
+  .search-item:hover, .search-item.active { background: #e8f0fb; }
+  .search-item .si-name { font-weight: 600; color: #1f3864; }
+  .search-item .si-email { color: #888; font-size: 10px; margin-top: 1px; }
+  .search-item .si-match { color: #0098c3; }
+
+  /* Highlighted node — gold ring */
+  .node.highlighted rect {
+    stroke: #f5a623 !important;
+    stroke-width: 3px !important;
+    filter: drop-shadow(0 0 7px rgba(245,166,35,0.7)) !important;
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>Cegeka DIO — Organigram</h1>
+  <span class="subtitle">171 people</span>
+  <div id="search-wrap">
+    <input id="search-input" type="text" placeholder="🔍  Search name…" autocomplete="off" spellcheck="false" />
+    <button id="search-clear" title="Clear search" onclick="clearSearch()">×</button>
+    <div id="search-dropdown"></div>
+  </div>
+  <div id="controls">
+    <button onclick="expandAll()">Expand all</button>
+    <button onclick="collapseAll()">Collapse all</button>
+    <button onclick="resetZoom()">Reset view</button>
+  </div>
+</div>
+
+<div id="chart-container">
+  <svg id="svg"></svg>
+</div>
+
+<div id="tooltip"></div>
+
+<div id="legend">
+  <div class="leg-row"><div class="swatch" style="background:#1f3864"></div>Director</div>
+  <div class="leg-row"><div class="swatch" style="background:#2e75b6"></div>L1 Manager</div>
+  <div class="leg-row"><div class="swatch" style="background:#0098c3"></div>L2 Manager</div>
+  <div class="leg-row"><div class="swatch" style="background:#fff;border:1px solid #c8d8ec"></div>Team member</div>
+  <div class="leg-hint">Click a box to<br>expand / collapse</div>
+</div>
+
+<script>
+const raw = {
+  n:"Luc Dedroog", e:"Luc.Dedroog@cegeka.com", c:[
+    { n:"Chris Ramakers", e:"Chris.Ramakers@cegeka.com", c:[
+      {n:"Alexandr Socolov",      e:"Alexandr.Socolov@cegeka.com"},
+      {n:"Alina Nagy",            e:"alina.nagy@cegeka.com"},
+      {n:"Anca Loringz",          e:"anca.loringz@cegeka.com"},
+      {n:"Bogdan Radu",           e:"bogdan.radu1@cegeka.com"},
+      {n:"Cristian Bacu",         e:"cristian.bacu@cegeka.com"},
+      {n:"Cristian Scarlat",      e:"cristian.scarlat@cegeka.com"},
+      {n:"Daniel Olaru",          e:"daniel.olaru@cegeka.com"},
+      {n:"David Deceuninck",      e:"david.deceuninck@cegeka.com"},
+      {n:"Elien Maris",           e:"elien.maris@cegeka.com"},
+      {n:"Ilias Iliopoulos",      e:"Ilias.Iliopoulos@cegeka.com"},
+      {n:"Ionut Raveica",         e:"ionut.raveica@cegeka.com"},
+      {n:"Irina-Mihaela Vostinar",e:"irina.vostinar@cegeka.com"},
+      {n:"Joshua Kuijvenhoven",   e:"joshua.kuijvenhoven@cegeka.com"},
+      {n:"Kristof Neven",         e:"Kristof.Neven@cegeka.com"},
+      {n:"Lien Jamaer",           e:"Lien.Jamaer@cegeka.com"},
+      {n:"Lode Bosmans",          e:"Lode.Bosmans@cegeka.com"},
+      {n:"Michiel Bongaerts",     e:"michiel.bongaerts@cegeka.com"},
+      {n:"Mourat Varna",          e:"Mourat.varna@cegeka.com"},
+      {n:"Nicoleta Nita",         e:"nicoleta.nita@cegeka.com"},
+      {n:"Ovidiu Stancu",         e:"ovidiu.stancu@cegeka.com"},
+      {n:"Ron Goren",             e:"Ron.Goren@cegeka.com"},
+      {n:"Santhoshkumar Shakkaravarthy", e:"Santhoshkumar.Shakkaravarthy@cegeka.com"},
+      {n:"Stefan Ilie Gogu",      e:"Stefan.Gogu@cegeka.com"}
+    ]},
+    { n:"Griet Vanrijkel", e:"Griet.Vanrijkel@cegeka.com" },
+    { n:"Jim Lesinski", e:"jim.lesinski@cegeka.com", c:[
+      {n:"Adrian Biliboc",    e:"adrian.biliboc@cegeka.com"},
+      {n:"Corneliu Vizitiu",  e:"corneliu.vizitiu@cegeka.com"},
+      {n:"Doroteea Morarescu",e:"doroteea.morarescu@cegeka.com"},
+      {n:"Josine den Rooijen",e:"josine.denrooijen@cegeka.com", c:[
+        {n:"Alex Brodzinski",  e:"alex.brodzinski@cegeka.com"},
+        {n:"Alexandru Grecu",  e:"alexandru.grecu@cegeka.com"},
+        {n:"Alina Ghinoiu",    e:"alina.ghinoiu@cegeka.com"},
+        {n:"Hans Notelteirs",  e:"Hans.Notelteirs@cegeka.com"},
+        {n:"Tony Aerts",       e:"tony.aerts@cegeka.com"}
+      ]},
+      {n:"Ludo Kelleneers",   e:"Ludo.Kelleneers@cegeka.com"},
+      {n:"Mark Kasprzak",     e:"Mark.Kasprzak@cegeka.com"},
+      {n:"Matthew Crawford",  e:"matthew.crawford@cegeka.com"},
+      {n:"Peter Duzy",        e:"peter.duzy@cegeka.com"},
+      {n:"Pramod Thalakulath Ellam", e:"pramod.thalakulath@cegeka.com", c:[
+        {n:"Kona Vineeth Mahesh", e:"konavineeth.mahesh@cegeka.com"},
+        {n:"Velayutham Dasan",    e:"velayutham.dasan@cegeka.com"}
+      ]},
+      {n:"Wim Hermans",       e:"Wim.Hermans@cegeka.com"}
+    ]},
+    { n:"Nick Van Aerde", e:"nick.vanaerde@cegeka.com", c:[
+      {n:"Alexandre Beckman", e:"alexandre.beckman@cegeka.com"},
+      {n:"Benno Daenen",      e:"benno.daenen@cegeka.com", c:[
+        {n:"Axel Bollen",   e:"axel.bollen@cegeka.com"},
+        {n:"Jens Bammens",  e:"jens.bammens@cegeka.com"},
+        {n:"Maarten Cloes", e:"maarten.cloes@cegeka.com"},
+        {n:"Sam De Boeck",  e:"sam.deboeck@cegeka.com"}
+      ]},
+      {n:"Cristian Brinza",   e:"cristian.brinza@cegeka.com"},
+      {n:"Geoffry Loix",      e:"geoffry.loix@cegeka.com", c:[
+        {n:"Alexandra Dudari",          e:"alexandra.dudari@cegeka.com"},
+        {n:"Andreea-Cristina Cojocaru", e:"AndreeaCristina.Cojocaru@cegeka.com"},
+        {n:"Dimitris Tomaras",          e:"Dimitris.tomaras@cegeka.com"},
+        {n:"Dragos Munteanu",           e:"Dragos.Munteanu@cegeka.com"},
+        {n:"Elisa Minutello",           e:"elisa.minutello@cegeka.com"},
+        {n:"Erwin Mintiens",            e:"erwin.mintiens@cegeka.com"},
+        {n:"Guang Wei",                 e:"guang.wei@cegeka.com"},
+        {n:"Iurie Gurulea",             e:"iurie.gurulea@cegeka.com"},
+        {n:"Maria Lesenco",             e:"Maria.Lesenco@cegeka.com"},
+        {n:"Nicolai Nichitin",          e:"nicolai.nichitin@cegeka.com"},
+        {n:"Raluca-Oana Gal",           e:"raluca.gal@cegeka.com"},
+        {n:"Roxana Voicu",              e:"roxana.voicu@cegeka.com"}
+      ]},
+      {n:"Laura-Mihaela Huma", e:"laura.huma@cegeka.com", c:[
+        {n:"Adriana Staver",     e:"Adriana.Staver@cegeka.com"},
+        {n:"Alexandros Karalis", e:"Alexandros.karalis@cegeka.com"},
+        {n:"Artiom Filippov",    e:"Artiom.Filippov@cegeka.com"},
+        {n:"Carla-Maria Rusu",   e:"carla.rusu1@cegeka.com"},
+        {n:"Claudiu Boicu",      e:"claudiu.boicu@cegeka.com"},
+        {n:"Cristian Urzica",    e:"cristian.urzica@cegeka.com"},
+        {n:"Dmitrii Meico",      e:"dmitrii.meico@cegeka.com"},
+        {n:"Maria Afteni",       e:"Maria.Afteni@cegeka.com"},
+        {n:"Mihai Stan",         e:"mihai.stan2@cegeka.com"},
+        {n:"Nicolae Enachi",     e:"Nicolae.Enachi@cegeka.com"},
+        {n:"Robert Tanasa",      e:"robert.tanasa@cegeka.com"},
+        {n:"Sergiu Rabaca",      e:"Sergiu.Rabaca@cegeka.com"},
+        {n:"Simina Costache",    e:"simina.costache@cegeka.com"}
+      ]},
+      {n:"Stijn Janssen", e:"stijn.janssen@cegeka.com", c:[
+        {n:"Adrian Romanov",               e:"adrian.romanov@cegeka.com"},
+        {n:"Athanasios Tasiopoulos",        e:"Athanasios.Tasiopoulos@cegeka.com"},
+        {n:"Cristian Borodin",             e:"Cristian.Borodin@cegeka.com"},
+        {n:"Heather Sadler",               e:"Heather.Sadler@cegeka.com"},
+        {n:"Ioannis Granitsas",            e:"Ioannis.granitsas@cegeka.com"},
+        {n:"Ioannis Thanos",               e:"Ioannis.thanos@cegeka.com"},
+        {n:"Ivan Madjar",                  e:"Ivan.Madjar@cegeka.com"},
+        {n:"Jonas Windmolders",            e:"Jonas.Windmolders@cegeka.com"},
+        {n:"Koen Meyers",                  e:"koen.meyers@cegeka.com"},
+        {n:"Maarten Mercken",              e:"Maarten.Mercken@cegeka.com"},
+        {n:"Makrina Karagkiozidou",        e:"Makrina.karagkiozidou@cegeka.com"},
+        {n:"Nikolaos Sourvanos",           e:"Nikolaos.Sourvanos@cegeka.com"},
+        {n:"Pradeep Gopal",                e:"pradeep.gopal@cegeka.com"},
+        {n:"Thangarasu Amaresan",          e:"Thangarasu.Amaresan@cegeka.com"},
+        {n:"Vasileios Bitzionis",          e:"Vasileios.Bitzionis@cegeka.com"},
+        {n:"Victor Varvariuc",             e:"Victor.Varvariuc@cegeka.com"},
+        {n:"Vishnurajesh Shanmugasundharam",e:"Vishnurajesh.Shanmugasundharam@cegeka.com"}
+      ]},
+      {n:"Veerle Hanssens", e:"Veerle.Hanssens@cegeka.com"},
+      {n:"Vitalie Jicol",   e:"Vitalie.Jicol@cegeka.com"},
+      {n:"Wouter Pirotte",  e:"wouter.pirotte@cegeka.com"}
+    ]},
+    { n:"Sandra Vaesen", e:"sandra.vaesen@cegeka.com", c:[
+      {n:"Bart Vanlessen",     e:"Bart.Vanlessen@cegeka.com"},
+      {n:"Carmen Niculae",     e:"carmen.niculae@cegeka.com", c:[
+        {n:"Alina-Elena Gavaz",          e:"alina.gavaz@cegeka.com"},
+        {n:"Andreea-Cristina Costache",  e:"andreea.costache@cegeka.com"},
+        {n:"Andreia Fedeles",            e:"andreia.fedeles@cegeka.com"},
+        {n:"Ianis Marcu",                e:"ianis.marcu@cegeka.com"},
+        {n:"Stefania Beatrice Lazar",    e:"stefaniabeatrice.lazar@cegeka.com"}
+      ]},
+      {n:"Cristian Apahidean", e:"cristian.apahidean@cegeka.com"},
+      {n:"Frank Lintermans",   e:"frank.lintermans@cegeka.com"},
+      {n:"Johan Van Oeyen",    e:"johan.vanoeyen@cegeka.com"},
+      {n:"Ruben Thonissen",    e:"Ruben.Thonissen@cegeka.com"},
+      {n:"Seppe Thewis",       e:"Seppe.Thewis@cegeka.com"}
+    ]},
+    { n:"Thomas Coomans", e:"Thomas.Coomans@cegeka.com", c:[
+      {n:"Cédric Lodewijckx", e:"cedric.lodewijckx@cegeka.com"},
+      {n:"Dirk Bernaerts",    e:"Dirk.Bernaerts@cegeka.com"},
+      {n:"Frederik Derdin",   e:"frederik.derdin@cegeka.com"},
+      {n:"Isabel Chetta",     e:"Isabel.Chetta@cegeka.com"},
+      {n:"Jef Peeters",       e:"jef.peeters@cegeka.com", c:[
+        {n:"Ab Laumans",          e:"ab.laumans@cegeka.com"},
+        {n:"Alexandra Bulac",     e:"alexandra.bulac@cegeka.com"},
+        {n:"Anna Bertrands",      e:"Anna.Bertrands@cegeka.com"},
+        {n:"Brigitte Dulak",      e:"Brigitte.Dulak@cegeka.com"},
+        {n:"Cynthia Janssen",     e:"cynthia.janssen@cegeka.com"},
+        {n:"Davy Goris",          e:"Davy.Goris@cegeka.com"},
+        {n:"Johan Knops",         e:"Johan.Knops1@cegeka.com"},
+        {n:"Johnny Feijs",        e:"Johnny.Feijs@cegeka.com"},
+        {n:"Laura Moraru",        e:"laura.moraru@cegeka.com"},
+        {n:"Sebastiaan Roodhooft",e:"Sebastiaan.Roodhooft@cegeka.com"},
+        {n:"Steven Warson",       e:"Steven.Warson@cegeka.com"}
+      ]},
+      {n:"Katrien Daems", e:"Katrien.Daems@cegeka.com", c:[
+        {n:"Adrian Nedelcu",    e:"adrian.nedelcu@cegeka.com"},
+        {n:"Eda Elmas",         e:"eda.elmas@cegeka.com"},
+        {n:"Ema Rusu",          e:"ema.rusu@cegeka.com"},
+        {n:"Holle Forczek",     e:"holle.forczek@cegeka.com"},
+        {n:"Jan Ons",           e:"Jan.Ons@cegeka.com"},
+        {n:"Jolien Bangels",    e:"Jolien.Bangels@cegeka.com"},
+        {n:"Jurgen Smeets",     e:"Jurgen.Smeets@cegeka.com"},
+        {n:"Karen Cabral",      e:"karen.cabral@cegeka.com"},
+        {n:"Mark Pools",        e:"mark.pools@cegeka.com"},
+        {n:"Marvin Fernandes",  e:"marvin.fernandes@cegeka.com"},
+        {n:"Peter Simons",      e:"peter.simons@cegeka.com"},
+        {n:"Pieter Cornelissen",e:"Pieter.Cornelissen@cegeka.com"},
+        {n:"Sven Lardaux",      e:"sven.lardaux@cegeka.com"},
+        {n:"Tom Janssen",       e:"tom.janssen@cegeka.com"}
+      ]},
+      {n:"Kristof Putseys",  e:"Kristof.Putseys@cegeka.com"},
+      {n:"Nathan Willekens", e:"Nathan.Willekens@cegeka.com"},
+      {n:"Peter Schoofs",    e:"Peter.Schoofs@cegeka.com"},
+      {n:"Samina Breuls",    e:"samina.breuls@cegeka.com"},
+      {n:"Stijn Vermeire",   e:"stijn.vermeire@cegeka.com", c:[
+        {n:"Fabian Dammekens",      e:"Fabian.Dammekens@cegeka.com"},
+        {n:"Kiran Kumar Kalimuthu", e:"kirankumar.kalimuthu@cegeka.com"},
+        {n:"Nick Gressens",         e:"Nick.Gressens@cegeka.com"},
+        {n:"Raluca Dragoicea",      e:"raluca.dragoicea@cegeka.com"},
+        {n:"Toon Jouck",            e:"toon.jouck@cegeka.com"},
+        {n:"Wouter Dumon",          e:"wouter.dumon@cegeka.com"}
+      ]},
+      {n:"Vanessa Quintens", e:"vanessa.quintens@cegeka.com", c:[
+        {n:"Chris Klemick",    e:"chris.klemick@cegeka.com"},
+        {n:"Daniela Gudima",   e:"Daniela.Gudima@cegeka.com"},
+        {n:"Danny Mesaric",    e:"Danny.Mesaric@cegeka.com"},
+        {n:"Elizabeth Martin", e:"elizabeth.martin@cegeka.com"},
+        {n:"Ine Pollaris",     e:"ine.pollaris@cegeka.com"},
+        {n:"Irina Cinteza",    e:"irina.cinteza@cegeka.com"},
+        {n:"Jeni Filip",       e:"jeni.filip@cegeka.com"},
+        {n:"Jeroen Custers",   e:"Jeroen.Custers@cegeka.com"},
+        {n:"Jolene Goodberry", e:"jolene.goodberry@cegeka.com"},
+        {n:"Madalina Jianu",   e:"madalina.jianu@cegeka.com"},
+        {n:"Mathy Bollen",     e:"mathy.bollen@cegeka.com"},
+        {n:"Paula Biciusca",   e:"paula.biciusca@cegeka.com"},
+        {n:"Philippe Stevens", e:"Philippe.Stevens@cegeka.com"},
+        {n:"Susan Kasprzak",   e:"susan.kasprzak@cegeka.com"},
+        {n:"Tim Dupont",       e:"tim.dupont@cegeka.com"}
+      ]}
+    ]}
+  ]
+};
+
+// ─── Config ───────────────────────────────────────────────────────────────
+const NODE_W   = 180;
+const NODE_H   = 52;
+const H_GAP    = 60;   // horizontal gap between levels
+const V_GAP    = 12;   // vertical gap between siblings
+
+const COLORS = {
+  0: "#1f3864",   // root
+  1: "#2e75b6",   // L1
+  2: "#0098c3",   // L2
+  3: "#4eadd4"    // L3
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+function countDesc(node) {
+  if (!node.c) return 0;
+  return node.c.reduce((s, ch) => s + 1 + countDesc(ch), 0);
+}
+
+// Prepare data: attach report count, initially collapse beyond L1
+function prepare(node, depth=0) {
+  node._reports = countDesc(node);
+  node._depth   = depth;
+  node._id      = Math.random().toString(36).slice(2);
+  if (node.c) {
+    node.c.forEach(ch => prepare(ch, depth + 1));
+    if (depth >= 1) {
+      // collapse children beyond level 1
+      node._children = node.c;
+      node.c = null;
+    }
+  }
+  return node;
+}
+
+prepare(raw);
+
+// ─── Search index (built after prepare, traverses both c and _children) ──
+function buildSearchIndex(node, parent=null, acc=[]) {
+  node._parent = parent;
+  acc.push(node);
+  const kids = (node.c || []).concat(node._children || []);
+  kids.forEach(ch => buildSearchIndex(ch, node, acc));
+  return acc;
+}
+const searchIndex = buildSearchIndex(raw);
+
+let highlightedId    = null;
+let activeDropdownIdx = -1;
+
+const searchInput    = document.getElementById("search-input");
+const searchDropdown = document.getElementById("search-dropdown");
+const searchClear    = document.getElementById("search-clear");
+
+function hlMatch(str, q) {
+  const i = str.toLowerCase().indexOf(q.toLowerCase());
+  if (i === -1) return str;
+  return str.slice(0,i) +
+    `<span class="si-match">${str.slice(i, i+q.length)}</span>` +
+    str.slice(i+q.length);
+}
+
+searchInput.addEventListener("input", () => {
+  const q = searchInput.value.trim();
+  searchClear.style.display = q ? "block" : "none";
+  activeDropdownIdx = -1;
+  if (!q) { searchDropdown.style.display = "none"; return; }
+
+  const matches = searchIndex
+    .filter(d => d.n.toLowerCase().includes(q.toLowerCase()))
+    .slice(0, 10);
+
+  if (!matches.length) {
+    searchDropdown.innerHTML =
+      `<div class="search-item" style="color:#888;cursor:default;font-style:italic">No results found</div>`;
+    searchDropdown.style.display = "block";
+    return;
+  }
+
+  searchDropdown.innerHTML = matches.map((m, i) =>
+    `<div class="search-item" data-id="${m._id}" data-idx="${i}">
+       <div class="si-name">${hlMatch(m.n, q)}</div>
+       <div class="si-email">${m.e}</div>
+     </div>`
+  ).join("");
+  searchDropdown.style.display = "block";
+
+  searchDropdown.querySelectorAll(".search-item[data-id]").forEach(el => {
+    el.addEventListener("click", () => {
+      const target = searchIndex.find(d => d._id === el.dataset.id);
+      if (target) {
+        searchInput.value = target.n;
+        searchDropdown.style.display = "none";
+        navigateTo(target);
+      }
+    });
+  });
+});
+
+searchInput.addEventListener("keydown", e => {
+  const items = [...searchDropdown.querySelectorAll(".search-item[data-id]")];
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    activeDropdownIdx = Math.min(activeDropdownIdx + 1, items.length - 1);
+    items.forEach((el, i) => el.classList.toggle("active", i === activeDropdownIdx));
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    activeDropdownIdx = Math.max(activeDropdownIdx - 1, 0);
+    items.forEach((el, i) => el.classList.toggle("active", i === activeDropdownIdx));
+  } else if (e.key === "Enter") {
+    if (activeDropdownIdx >= 0 && items[activeDropdownIdx]) {
+      items[activeDropdownIdx].click();
+    } else if (items.length === 1) {
+      items[0].click();
+    }
+  } else if (e.key === "Escape") {
+    searchDropdown.style.display = "none";
+    searchInput.blur();
+  }
+});
+
+document.addEventListener("click", e => {
+  if (!e.target.closest("#search-wrap")) searchDropdown.style.display = "none";
+});
+
+function clearSearch() {
+  searchInput.value = "";
+  searchClear.style.display = "none";
+  searchDropdown.style.display = "none";
+  if (highlightedId) {
+    const prev = searchIndex.find(d => d._id === highlightedId);
+    if (prev) prev._highlighted = false;
+    highlightedId = null;
+    gNodes.selectAll("g.node").classed("highlighted", false);
+  }
+}
+
+function navigateTo(targetData) {
+  // Clear old highlight
+  if (highlightedId) {
+    const prev = searchIndex.find(d => d._id === highlightedId);
+    if (prev) prev._highlighted = false;
+  }
+  targetData._highlighted = true;
+  highlightedId = targetData._id;
+
+  // Expand every ancestor so the node is visible
+  let cur = targetData._parent;
+  while (cur) {
+    if (cur._children) { cur.c = cur._children; cur._children = null; }
+    cur = cur._parent;
+  }
+
+  update(root);
+
+  // After transition: pan to the node and apply highlight class
+  setTimeout(() => {
+    const found = root.descendants().find(d => d.data._id === targetData._id);
+    if (!found) return;
+    const container = document.getElementById("chart-container");
+    const scale = 1.3;
+    const tx = container.clientWidth  / 2 - (found.y + NODE_W / 2) * scale;
+    const ty = container.clientHeight / 2 - found.x * scale;
+    svg.transition().duration(600).call(
+      zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale)
+    );
+    gNodes.selectAll("g.node")
+      .classed("highlighted", d => !!d.data._highlighted);
+  }, 360);
+}
+
+// ─── Layout (custom top→down with proper vertical spacing) ────────────────
+// We'll use D3 tree with a custom separation function
+
+const svg    = d3.select("#svg");
+const gMain  = svg.append("g").attr("class","main");
+const gLinks = gMain.append("g").attr("class","links");
+const gNodes = gMain.append("g").attr("class","nodes");
+
+const tooltip = document.getElementById("tooltip");
+
+// Zoom
+const zoom = d3.zoom()
+  .scaleExtent([0.1, 3])
+  .on("zoom", e => gMain.attr("transform", e.transform));
+svg.call(zoom);
+
+let root, treeLayout;
+
+function buildLayout() {
+  root = d3.hierarchy(raw, d => d.c);
+
+  const totalLeaves = root.leaves().length;
+  const treeH = Math.max(totalLeaves * (NODE_H + V_GAP), 600);
+  const treeW = (root.height + 1) * (NODE_W + H_GAP);
+
+  treeLayout = d3.tree()
+    .size([treeH, treeW])
+    .separation((a, b) => {
+      // extra separation between different subtrees
+      return a.parent === b.parent ? 1 : 1.2;
+    });
+
+  treeLayout(root);
+  return { treeH, treeW };
+}
+
+function nodeColor(d) {
+  return COLORS[Math.min(d.depth, 3)] || COLORS[3];
+}
+
+function isLeaf(d) {
+  return !d.children && !d.data._children;
+}
+
+function truncate(str, maxLen) {
+  return str.length > maxLen ? str.slice(0, maxLen - 1) + "…" : str;
+}
+
+function update(source) {
+  const duration = 300;
+  const { treeH, treeW } = buildLayout();
+
+  // ── Links ──────────────────────────────────────────────────────────────
+  const links = root.links();
+
+  const link = gLinks.selectAll("path.link")
+    .data(links, d => d.target.data._id);
+
+  const linkEnter = link.enter().append("path")
+    .attr("class","link")
+    .attr("d", d => {
+      // start at source position
+      const o = { x: source._x0 ?? source.x, y: source._y0 ?? source.y };
+      return diagonal({ source: o, target: o });
+    });
+
+  link.merge(linkEnter)
+    .transition().duration(duration)
+    .attr("d", diagonal);
+
+  link.exit()
+    .transition().duration(duration)
+    .attr("d", d => {
+      const o = { x: source.x, y: source.y };
+      return diagonal({ source: o, target: o });
+    })
+    .remove();
+
+  // ── Nodes ──────────────────────────────────────────────────────────────
+  const nodes = root.descendants();
+
+  const node = gNodes.selectAll("g.node")
+    .data(nodes, d => d.data._id);
+
+  // Enter
+  const nodeEnter = node.enter().append("g")
+    .attr("class", d => "node" + (isLeaf(d) ? " leaf" : ""))
+    .attr("transform", d => {
+      const sx = source._x0 ?? source.x;
+      const sy = source._y0 ?? source.y;
+      return `translate(${sy},${sx})`;
+    })
+    .on("click", (event, d) => {
+      event.stopPropagation();
+      toggle(d);
+      update(d);
+    })
+    .on("mouseover", (event, d) => {
+      tooltip.style.opacity = 1;
+      tooltip.innerHTML = `<strong>${d.data.n}</strong><br>${d.data.e}` +
+        (d.data._reports ? `<br><span style="color:#a8c0e0">${d.data._reports} report${d.data._reports !== 1 ? "s" : ""}</span>` : "");
+    })
+    .on("mousemove", event => {
+      tooltip.style.left = (event.clientX + 12) + "px";
+      tooltip.style.top  = (event.clientY - 10) + "px";
+    })
+    .on("mouseout", () => { tooltip.style.opacity = 0; });
+
+  nodeEnter.append("rect")
+    .attr("x", 0)
+    .attr("y", -NODE_H / 2)
+    .attr("width",  NODE_W)
+    .attr("height", NODE_H)
+    .attr("rx", 6)
+    .attr("ry", 6)
+    .attr("fill", d => isLeaf(d) ? "#fff" : nodeColor(d))
+    .attr("stroke", d => isLeaf(d) ? "#c8d8ec" : "none");
+
+  // Name text
+  nodeEnter.append("text")
+    .attr("class","name")
+    .attr("x", 10)
+    .attr("y", d => (d.data._reports > 0 || d.data._children) ? -6 : 5)
+    .attr("dy","0.35em")
+    .text(d => truncate(d.data.n, 22))
+    .attr("fill", d => isLeaf(d) ? "#1f3864" : "#fff");
+
+  // Report count or email (second line)
+  nodeEnter.append("text")
+    .attr("class","email")
+    .attr("x", 10)
+    .attr("y", 10)
+    .attr("dy","0.35em")
+    .text(d => {
+      if (d.data._reports > 0) return `${d.data._reports} report${d.data._reports !== 1 ? "s" : ""}`;
+      if (d.data._children) return `${d.data._children.length} report${d.data._children.length !== 1 ? "s" : ""} (collapsed)`;
+      return "";
+    })
+    .attr("fill", d => isLeaf(d) ? "#666" : "rgba(255,255,255,0.75)");
+
+  // Expand/collapse indicator (small circle on right edge, only for non-leaves with hidden children)
+  nodeEnter.append("circle")
+    .attr("class","expand-dot")
+    .attr("cx", NODE_W - 0)
+    .attr("cy", 0)
+    .attr("r", 7);
+
+  nodeEnter.append("text")
+    .attr("class","expand-icon")
+    .attr("x", NODE_W - 0)
+    .attr("y", 1)
+    .attr("text-anchor","middle")
+    .attr("dominant-baseline","middle")
+    .attr("font-size","10px")
+    .attr("pointer-events","none")
+    .attr("fill", d => isLeaf(d) ? "none" : "rgba(255,255,255,0.9)");
+
+  // Merge + transition
+  const nodeUpdate = node.merge(nodeEnter)
+    .transition().duration(duration)
+    .attr("transform", d => `translate(${d.y},${d.x})`);
+
+  // Update class (leaf + highlight)
+  node.merge(nodeEnter)
+    .attr("class", d =>
+      "node" + (isLeaf(d) ? " leaf" : "") + (d.data._highlighted ? " highlighted" : ""));
+
+  // Update expand icon text
+  node.merge(nodeEnter).select(".expand-icon")
+    .text(d => {
+      if (!d.data._children && !d.children) return "";
+      return d.children ? "−" : "+";
+    });
+
+  // Update expand dot visibility
+  node.merge(nodeEnter).select(".expand-dot")
+    .attr("display", d => (d.data._children || d.children) ? null : "none");
+
+  // Update email/count second line
+  node.merge(nodeEnter).select(".email")
+    .text(d => {
+      if (d.children && d.data._reports > 0) return `${d.data._reports} reports`;
+      if (d.data._children) {
+        const cnt = d.data._children.length;
+        return `${cnt} direct (collapsed)`;
+      }
+      return "";
+    });
+
+  // Exit
+  node.exit()
+    .transition().duration(duration)
+    .attr("transform", d => `translate(${source.y},${source.x})`)
+    .remove();
+
+  // Store old positions for transitions
+  root.descendants().forEach(d => {
+    d._x0 = d.x;
+    d._y0 = d.y;
+  });
+}
+
+// Curved diagonal link (horizontal tree: x=vertical axis, y=horizontal axis)
+function diagonal(d) {
+  const sx = d.source.y ?? d.source.y0;
+  const sy = d.source.x ?? d.source.x0;
+  const tx = d.target.y ?? d.target.y0;
+  const ty = d.target.x ?? d.target.x0;
+  const mx = (sx + tx) / 2;
+  return `M${sx + NODE_W},${sy}` +
+         `C${mx},${sy} ${mx},${ty} ${tx},${ty}`;
+}
+
+function toggle(d) {
+  if (d.children) {
+    d.data._children = d.data.c || d.children.map(ch => ch.data);
+    d.children = null;
+    d.data.c   = null;
+  } else if (d.data._children) {
+    d.data.c   = d.data._children;
+    d.data._children = null;
+  }
+}
+
+function expandAll() {
+  root.descendants().forEach(d => {
+    if (d.data._children) {
+      d.data.c = d.data._children;
+      d.data._children = null;
+    }
+  });
+  update(root);
+  setTimeout(resetZoom, 350);
+}
+
+function collapseAll() {
+  root.descendants().forEach(d => {
+    if (d.depth > 0 && d.children) {
+      d.data._children = d.children.map(ch => ch.data);
+      d.children = null;
+      d.data.c = null;
+    }
+  });
+  update(root);
+  setTimeout(resetZoom, 350);
+}
+
+function resetZoom() {
+  const container = document.getElementById("chart-container");
+  const cw = container.clientWidth;
+  const ch = container.clientHeight;
+  // fit the visible root node to roughly center-left
+  svg.transition().duration(400).call(
+    zoom.transform,
+    d3.zoomIdentity.translate(80, ch / 2).scale(1)
+  );
+}
+
+// ─── Initial render ───────────────────────────────────────────────────────
+update(raw);
+
+// Center the view on start (root node visible at left-center)
+const containerH = document.getElementById("chart-container").clientHeight;
+svg.call(zoom.transform, d3.zoomIdentity.translate(80, containerH / 2).scale(1));
+</script>
+</body>
+</html>
